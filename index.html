@@ -47,50 +47,62 @@ th { background:#f1f1f1; }
 
   <label>Nro Remito</label>
   <input type="text" id="remito" />
+
+  <h3>Listado de Información Extraída</h3>
+  <table id="tablaDatos">
+    <thead>
+      <tr><th>Fecha</th><th>Nombre</th><th>Cuenta</th><th>Remito</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <h3>Exportar a Excel</h3>
+  <label>Desde</label>
+  <input type="date" id="fechaDesde" />
+  <label>Hasta</label>
+  <input type="date" id="fechaHasta" />
+  <button class="btn-green" onclick="exportarExcel()">EXPORTAR EXCEL</button>
 </div>
 
 <script>
 "use strict";
 
-/* ===========================
-   OCR
-=========================== */
+let registros = []; // almacenamiento interno
+
 async function ejecutarLectura() {
+  try {
+    const file = document.getElementById("imageInput").files[0];
+    if (!file) return alert("Selecciona una imagen");
 
-  const file = document.getElementById("imageInput").files[0];
-  if (!file) return alert("Selecciona una imagen");
+    const estado = document.getElementById("estado");
+    estado.innerText = "Procesando imagen...";
 
-  const estado = document.getElementById("estado");
-  estado.innerText = "Procesando imagen...";
+    const img = new Image();
+    img.src = URL.createObjectURL(file);
+    await new Promise(resolve => img.onload = resolve);
 
-  const img = new Image();
-  img.src = URL.createObjectURL(file);
-  await new Promise(resolve => img.onload = resolve);
+    const canvas = document.getElementById("tempCanvas");
+    const ctx = canvas.getContext("2d");
 
-  const canvas = document.getElementById("tempCanvas");
-  const ctx = canvas.getContext("2d");
+    canvas.width = img.width;
+    canvas.height = img.height;
 
-  canvas.width = img.width;
-  canvas.height = img.height;
+    // Preprocesamiento básico
+    ctx.filter = "grayscale(1) contrast(1.5) brightness(1.1)";
+    ctx.drawImage(img, 0, 0);
 
-  ctx.filter = "grayscale(1) contrast(2) brightness(1.2)";
-  ctx.drawImage(img, 0, 0);
+    const { data } = await Tesseract.recognize(canvas, "spa");
 
-  const { data } = await Tesseract.recognize(canvas, "spa");
+    extraerInformacion(data.text);
 
-  console.log("===== TEXTO OCR =====");
-  console.log(data.text);
-
-  extraerInformacion(data.text);
-
-  estado.innerText = "Lectura finalizada ✔";
+    estado.innerText = "Lectura finalizada ✔";
+  } catch (err) {
+    document.getElementById("estado").innerText = "Error en el procesamiento ❌";
+    console.error(err);
+  }
 }
 
-/* ===========================
-   EXTRACTOR PROFESIONAL
-=========================== */
 function extraerInformacion(texto="") {
-
   const textoLimpio = texto.replace(/\r/g,"");
   const lineas = textoLimpio.split("\n").map(l=>l.trim()).filter(Boolean);
 
@@ -98,74 +110,70 @@ function extraerInformacion(texto="") {
   let cuenta = "";
   let remito = "";
 
-  /* ================= REMITO ================= */
   const regexRemito = /\b(1101|1104|0104|3008|1107|3009)[-\s]?\d{5,}\b/;
   const matchRemito = texto.match(regexRemito);
-  if (matchRemito) {
-    remito = matchRemito[0].replace(/\s+/g,"-");
-  }
+  if (matchRemito) remito = matchRemito[0].replace(/\s+/g,"-");
 
-  /* ================= CUENTA ================= */
   for (let linea of lineas) {
-
-    // Cuenta: 65811
     let matchCuenta = linea.match(/(Cta\.?|Cuenta)[^\d]{0,5}(\d{4,})/i);
-    if (matchCuenta) {
-      cuenta = matchCuenta[2];
-      break;
-    }
-
-    // Número entre paréntesis (110797)
+    if (matchCuenta) { cuenta = matchCuenta[2]; break; }
     let matchParentesis = linea.match(/\((\d{4,})\)/);
-    if (matchParentesis && !cuenta) {
-      cuenta = matchParentesis[1];
-    }
+    if (matchParentesis && !cuenta) cuenta = matchParentesis[1];
   }
 
-  /* ================= NOMBRE ================= */
   for (let linea of lineas) {
-
-    // Nombre: XXXXX
     let matchNombre = linea.match(/Nombre[:\s]+(.+)/i);
-    if (matchNombre) {
-      nombre = limpiarTexto(matchNombre[1]);
-      break;
-    }
-
-    // Sr.(es): XXXXX
+    if (matchNombre) { nombre = limpiarTexto(matchNombre[1]); break; }
     let matchSr = linea.match(/Sr\.?\(?es\)?[:\s]+(.+)/i);
-    if (matchSr) {
-      nombre = limpiarTexto(matchSr[1]);
-      break;
-    }
-
-    // Nombre dentro de paréntesis (Maria Silva)
+    if (matchSr) { nombre = limpiarTexto(matchSr[1]); break; }
     let matchParentesisNombre = linea.match(/\(([A-Za-zÁÉÍÓÚÑáéíóúñ\s\.]+)\)/);
-    if (matchParentesisNombre && !nombre) {
-      nombre = limpiarTexto(matchParentesisNombre[1]);
-    }
-
-    // Formato APELLIDO, NOMBRE
-    if (!nombre && /^[A-ZÁÉÍÓÚÑ\s]+,\s?[A-ZÁÉÍÓÚÑ\s]+$/.test(linea)) {
-      nombre = limpiarTexto(linea);
-    }
+    if (matchParentesisNombre && !nombre) nombre = limpiarTexto(matchParentesisNombre[1]);
+    if (!nombre && /^[A-ZÁÉÍÓÚÑ\s]+,\s?[A-ZÁÉÍÓÚÑ\s]+$/.test(linea)) nombre = limpiarTexto(linea);
   }
 
   document.getElementById("nombre").value = nombre;
   document.getElementById("cuenta").value = cuenta;
   document.getElementById("remito").value = remito;
+
+  const fecha = new Date().toISOString().split("T")[0];
+  const registro = { fecha, nombre, cuenta, remito };
+  registros.push(registro);
+  actualizarTabla();
 }
 
-/* ===========================
-   LIMPIEZA
-=========================== */
 function limpiarTexto(txt){
-  return txt
-    .replace(/[^A-Za-zÁÉÍÓÚÑáéíóúñ\s,]/g,"")
-    .replace(/\s+/g," ")
-    .trim();
+  return txt.replace(/[^A-Za-zÁÉÍÓÚÑáéíóúñ\s,]/g,"").replace(/\s+/g," ").trim();
+}
+
+function actualizarTabla(){
+  const tbody = document.querySelector("#tablaDatos tbody");
+  tbody.innerHTML = "";
+  registros.forEach(r=>{
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${r.fecha}</td><td>${r.nombre}</td><td>${r.cuenta}</td><td>${r.remito}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function exportarExcel(){
+  const desde = document.getElementById("fechaDesde").value;
+  const hasta = document.getElementById("fechaHasta").value;
+
+  let filtrados = registros;
+  if (desde) filtrados = filtrados.filter(r=>r.fecha >= desde);
+  if (hasta) filtrados = filtrados.filter(r=>r.fecha <= hasta);
+
+  if (filtrados.length === 0) return alert("No hay datos en el rango seleccionado");
+
+  const hoja = XLSX.utils.json_to_sheet(filtrados);
+  const libro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(libro, hoja, "Remitos");
+
+  const fechaArchivo = new Date().toISOString().split("T")[0];
+  XLSX.writeFile(libro, `Remitos_${fechaArchivo}.xlsx`);
 }
 </script>
 
 </body>
 </html>
+
