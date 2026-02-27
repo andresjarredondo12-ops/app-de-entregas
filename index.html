@@ -17,8 +17,6 @@ input, select { width:100%; padding:8px; margin-top:5px; border:1px solid #ccc; 
 button { padding:8px 12px; margin-top:10px; border:none; border-radius:5px; font-weight:bold; cursor:pointer; }
 .btn-blue { background:#007bff; color:white; width:100%; }
 .btn-green { background:#28a745; color:white; width:100%; }
-.btn-orange { background:#fd7e14; color:white; }
-.btn-red { background:#dc3545; color:white; }
 table { width:100%; border-collapse:collapse; margin-top:20px; }
 th, td { border:1px solid #ddd; padding:8px; text-align:center; }
 th { background:#f1f1f1; }
@@ -48,10 +46,13 @@ th { background:#f1f1f1; }
   <label>Nro Remito</label>
   <input type="text" id="remito" />
 
+  <label>Depósito</label>
+  <input type="text" id="deposito" />
+
   <h3>Listado de Información Extraída</h3>
   <table id="tablaDatos">
     <thead>
-      <tr><th>Fecha</th><th>Nombre</th><th>Cuenta</th><th>Remito</th></tr>
+      <tr><th>Fecha</th><th>Nombre</th><th>Cuenta</th><th>Remito</th><th>Depósito</th></tr>
     </thead>
     <tbody></tbody>
   </table>
@@ -87,7 +88,6 @@ async function ejecutarLectura() {
     canvas.width = img.width;
     canvas.height = img.height;
 
-    // Preprocesamiento básico
     ctx.filter = "grayscale(1) contrast(1.5) brightness(1.1)";
     ctx.drawImage(img, 0, 0);
 
@@ -109,10 +109,18 @@ function extraerInformacion(texto="") {
   let nombre = "";
   let cuenta = "";
   let remito = "";
+  let deposito = "";
 
-  const regexRemito = /\b(1101|1104|0104|3008|1107|3009)[-\s]?\d{5,}\b/;
+  // Remitos Santa Fe: 1101-, 1104-, 0104-, 3008-
+  // Remitos Buenos Aires: 1107-, 3009-
+  const regexRemito = /\b(1101|1104|0104|3008|1107|3009)[-\s]?\d*\b/;
   const matchRemito = texto.match(regexRemito);
-  if (matchRemito) remito = matchRemito[0].replace(/\s+/g,"-");
+  if (matchRemito) {
+    remito = matchRemito[0].replace(/\s+/g,"-");
+    const prefijo = remito.split("-")[0];
+    if (["1101","1104","0104","3008"].includes(prefijo)) deposito = "Santa Fe";
+    if (["1107","3009"].includes(prefijo)) deposito = "Buenos Aires";
+  }
 
   for (let linea of lineas) {
     let matchCuenta = linea.match(/(Cta\.?|Cuenta)[^\d]{0,5}(\d{4,})/i);
@@ -134,9 +142,10 @@ function extraerInformacion(texto="") {
   document.getElementById("nombre").value = nombre;
   document.getElementById("cuenta").value = cuenta;
   document.getElementById("remito").value = remito;
+  document.getElementById("deposito").value = deposito;
 
   const fecha = new Date().toISOString().split("T")[0];
-  const registro = { fecha, nombre, cuenta, remito };
+  const registro = { fecha, nombre, cuenta, remito, deposito };
   registros.push(registro);
   actualizarTabla();
 }
@@ -150,7 +159,7 @@ function actualizarTabla(){
   tbody.innerHTML = "";
   registros.forEach(r=>{
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${r.fecha}</td><td>${r.nombre}</td><td>${r.cuenta}</td><td>${r.remito}</td>`;
+    tr.innerHTML = `<td>${r.fecha}</td><td>${r.nombre}</td><td>${r.cuenta}</td><td>${r.remito}</td><td>${r.deposito}</td>`;
     tbody.appendChild(tr);
   });
 }
